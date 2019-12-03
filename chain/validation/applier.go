@@ -41,9 +41,6 @@ func (a *Applier) ApplyMessage(eCtx *vchain.ExecutionContext, state vstate.Wrapp
 	if err != nil {
 		return vchain.MessageReceipt{}, err
 	}
-	if ret.ActorErr != nil {
-		return vchain.MessageReceipt{}, ret.ActorErr
-	}
 
 	st.stateRoot, err = lotusVM.Flush(ctx)
 	if err != nil {
@@ -56,7 +53,7 @@ func (a *Applier) ApplyMessage(eCtx *vchain.ExecutionContext, state vstate.Wrapp
 		GasUsed:     vtypes.GasUnit(ret.GasUsed.Uint64()),
 	}
 
-	return mr, nil
+	return mr, ret.ActorErr
 }
 
 type vmRand struct {

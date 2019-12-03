@@ -9,7 +9,7 @@ require (
 	github.com/Gurpartap/async v0.0.0-20180927173644-4f7f499dd9ee
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
 	github.com/fatih/color v1.7.0 // indirect
-	github.com/filecoin-project/chain-validation v0.0.1
+	github.com/filecoin-project/chain-validation v0.0.2
 	github.com/filecoin-project/go-amt-ipld v0.0.0-20190919045431-3650716fff16
 	github.com/filecoin-project/go-bls-sigs v0.0.0-20191126221701-443b5348d38e
 	github.com/filecoin-project/go-sectorbuilder v0.0.0-00010101000000-000000000000
@@ -99,7 +99,6 @@ require (
 	go4.org v0.0.0-20190313082347-94abd6928b1d // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 	golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898
-	google.golang.org/api v0.9.0 // indirect
 	gopkg.in/cheggaaa/pb.v1 v1.0.28
 	gopkg.in/urfave/cli.v2 v2.0.0-20180128182452-d3ae77c26ac8
 	gotest.tools v2.2.0+incompatible
