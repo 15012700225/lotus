@@ -10,6 +10,7 @@ import (
 	"github.com/ipfs/go-hamt-ipld"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	"golang.org/x/xerrors"
+	"github.com/minio/blake2b-simd"
 	cbg "github.com/whyrusleeping/cbor-gen"
 
 	vstate "github.com/filecoin-project/chain-validation/pkg/state"
@@ -183,6 +184,17 @@ func (s *StateWrapper) SetSingletonActor(addr vactors.SingletonActorID, balance 
 	}
 }
 
+func (s *StateWrapper) Sign(ctx context.Context, addr vaddress.Address, data []byte) (*vtypes.Signature, error) {
+	sig, err := s.keys.Sign(ctx, addr, data)
+	if err != nil {
+		return nil, err
+	}
+	return &vtypes.Signature{
+		Type: sig.Type,
+		Data: sig.Data,
+	}, nil
+}
+
 func (s *StateWrapper) Signer() *keyStore {
 	return s.keys
 }
@@ -242,7 +254,8 @@ func (s *keyStore) Sign(ctx context.Context, addr vaddress.Address, data []byte)
 	if !ok {
 		return &types.Signature{}, fmt.Errorf("unknown address %v", addr)
 	}
-	digest, err := crypto.Sign(ki.PrivateKey, data)
+	b2sum := blake2b.Sum256(data)
+	digest, err := crypto.Sign(ki.PrivateKey, b2sum[:])
 	if err != nil {
 		return &types.Signature{}, err
 	}
