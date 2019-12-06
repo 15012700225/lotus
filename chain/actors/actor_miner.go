@@ -53,14 +53,10 @@ type StorageMinerActorState struct {
 	// Contains mostly static info about this miner
 	Info cid.Cid
 
-	// Faulty sectors reported since last SubmitPost,
-	// up to the current proving period's challenge time.
-	CurrentFaultSet types.BitField
+	// Faulty sectors reported since last SubmitPost
+	FaultSet types.BitField
 
-	// Faults submitted after the current proving period's challenge time,
-	// but before the PoSt for that period is submitted.
-	// These become the currentFaultSet when a PoSt is submitted.
-	NextFaultSet types.BitField
+	LastFaultSubmission uint64
 
 	// Amount of power this miner has.
 	Power types.BigInt
@@ -457,6 +453,10 @@ func (sma StorageMinerActor) SubmitFallbackPoSt(act *types.Actor, vmctx types.VM
 
 	var sectorInfos []ffi.PublicSectorInfo
 	if err := pss.ForEach(func(id uint64, v *cbg.Deferred) error {
+		if self.FaultSet.Has(id) {
+			return nil
+		}
+
 		var comms [][]byte
 		if err := cbor.DecodeInto(v.Raw, &comms); err != nil {
 			return xerrors.New("could not decode comms")
@@ -588,6 +588,25 @@ func GetFromSectorSet(ctx context.Context, s types.Storage, ss cid.Cid, sectorID
 	}
 
 	return true, comms[0], comms[1], nil
+}
+
+func RemoveFromSectorSet(ctx context.Context, s types.Storage, ss cid.Cid, ids []uint64) (cid.Cid, aerrors.ActorError) {
+
+	ssr, err := amt.LoadAMT(types.WrapStorage(s), ss)
+	if err != nil {
+		return cid.Undef, aerrors.HandleExternalError(err, "could not load sector set node")
+	}
+
+	if err := ssr.BatchDelete(ids); err != nil {
+		return cid.Undef, aerrors.HandleExternalError(err, "failed to delete from sector set")
+	}
+
+	ncid, err := ssr.Flush()
+	if err != nil {
+		return cid.Undef, aerrors.HandleExternalError(err, "failed to flush sector set")
+	}
+
+	return ncid, nil
 }
 
 func ValidatePoRep(ctx context.Context, maddr address.Address, ssize uint64, commD, commR, ticket, proof, seed []byte, sectorID uint64) (bool, ActorError) {
@@ -779,34 +798,25 @@ type DeclareFaultsParams struct {
 }
 
 func (sma StorageMinerActor) DeclareFaults(act *types.Actor, vmctx types.VMContext, params *DeclareFaultsParams) ([]byte, ActorError) {
-	/*
-		oldstate, self, aerr := loadState(vmctx)
-		if aerr != nil {
-			return nil, aerr
-		}
+	oldstate, self, aerr := loadState(vmctx)
+	if aerr != nil {
+		return nil, aerr
+	}
 
-		challengeHeight := self.ProvingPeriodEnd - build.PoStChallangeTime
+	for _, v := range params.Faults.All() {
+		self.FaultSet.Set(v)
+	}
 
-		if vmctx.BlockHeight() < challengeHeight {
-			// TODO: optimized bitfield methods
-			for _, v := range params.Faults.All() {
-				self.CurrentFaultSet.Set(v)
-			}
-		} else {
-			for _, v := range params.Faults.All() {
-				self.NextFaultSet.Set(v)
-			}
-		}
+	self.LastFaultSubmission = vmctx.BlockHeight()
 
-		nstate, err := vmctx.Storage().Put(self)
-		if err != nil {
-			return nil, err
-		}
-		if err := vmctx.Storage().Commit(oldstate, nstate); err != nil {
-			return nil, err
-		}
+	nstate, err := vmctx.Storage().Put(self)
+	if err != nil {
+		return nil, err
+	}
+	if err := vmctx.Storage().Commit(oldstate, nstate); err != nil {
+		return nil, err
+	}
 
-	*/
 	return nil, nil
 }
 
@@ -898,10 +908,8 @@ func onSuccessfulPoSt(self *StorageMinerActorState, vmctx types.VMContext) aerro
 		return aerrors.HandleExternalError(nerr, "failed to load proving set")
 	}
 
-	self.CurrentFaultSet = self.NextFaultSet
-	self.NextFaultSet = types.NewBitField()
-
-	faults := []uint64{} // TODO
+	faults := self.FaultSet.All()
+	self.FaultSet = types.NewBitField()
 
 	oldPower := self.Power
 	self.Power = types.BigMul(types.NewInt(pss.Count-uint64(len(faults))),
@@ -933,7 +941,13 @@ func onSuccessfulPoSt(self *StorageMinerActorState, vmctx types.VMContext) aerro
 		return err
 	}
 
-	self.ProvingSet = self.Sectors
+	ncid, err := RemoveFromSectorSet(vmctx.Context(), vmctx.Storage(), self.Sectors, faults)
+	if err != nil {
+		return err
+	}
+
+	self.Sectors = ncid
+	self.ProvingSet = ncid
 	self.ElectionPeriodStart = vmctx.BlockHeight()
 	return nil
 }
