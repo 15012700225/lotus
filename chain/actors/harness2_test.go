@@ -3,6 +3,7 @@ package actors_test
 import (
 	"bytes"
 	"context"
+	"math/rand"
 	"testing"
 
 	"github.com/ipfs/go-cid"
@@ -45,6 +46,7 @@ type Harness struct {
 	Stage      HarnessStage
 	Nonces     map[address.Address]uint64
 	GasCharges map[address.Address]types.BigInt
+	Rand       vm.Rand
 
 	lastBalanceCheck map[address.Address]types.BigInt
 
@@ -127,6 +129,7 @@ func NewHarness(t *testing.T, options ...HarnessOpt) *Harness {
 	h := &Harness{
 		Stage:  HarnessPreInit,
 		Nonces: make(map[address.Address]uint64),
+		Rand:   &fakeRand{},
 		HI: HarnessInit{
 			NAddrs: 1,
 			Miner:  blsaddr(0),
@@ -157,8 +160,14 @@ func NewHarness(t *testing.T, options ...HarnessOpt) *Harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	stateroot, err = gen.SetupStorageMarketActor(h.bs, stateroot, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	h.cs = store.NewChainStore(h.bs, nil)
-	h.vm, err = vm.NewVM(stateroot, 1, nil, h.HI.Miner, h.cs.Blockstore())
+	h.vm, err = vm.NewVM(stateroot, 1, h.Rand, h.HI.Miner, h.cs.Blockstore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,4 +323,12 @@ func DumpObject(t testing.TB, obj cbg.CBORMarshaler) []byte {
 		t.Fatalf("dumping params: %+v", err)
 	}
 	return b.Bytes()
+}
+
+type fakeRand struct{}
+
+func (fr *fakeRand) GetRandomness(ctx context.Context, h int64) ([]byte, error) {
+	out := make([]byte, 32)
+	rand.New(rand.NewSource(h)).Read(out)
+	return out, nil
 }

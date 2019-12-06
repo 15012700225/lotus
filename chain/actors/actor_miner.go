@@ -336,7 +336,7 @@ func (sma StorageMinerActor) ProveCommitSector(act *types.Actor, vmctx types.VMC
 		return nil, aerrors.Wrapf(err, "failed to compute data commitment (sector %d, deals: %v)", params.SectorID, params.DealIDs)
 	}
 
-	if ok, err := ValidatePoRep(ctx, maddr, mi.SectorSize, commD, us.Info.CommR, ticket, params.Proof, seed, params.SectorID); err != nil {
+	if ok, err := vmctx.Sys().ValidatePoRep(ctx, maddr, mi.SectorSize, commD, us.Info.CommR, ticket, params.Proof, seed, params.SectorID); err != nil {
 		return nil, err
 	} else if !ok {
 		return nil, aerrors.Newf(2, "porep proof was invalid (t:%x; s:%x(%d); p:%x)", ticket, seed, us.ReceivedEpoch+build.InteractivePoRepDelay, params.Proof)

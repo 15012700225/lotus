@@ -54,6 +54,8 @@ type VMContext struct {
 	gasAvailable types.BigInt
 	gasUsed      types.BigInt
 
+	sys *types.VMSyscalls
+
 	// root cid of the state of the actor this invocation will be on
 	sroot cid.Cid
 
@@ -73,6 +75,10 @@ func (vmc *VMContext) GetRandomness(height uint64) ([]byte, aerrors.ActorError) 
 		return nil, aerrors.Escalate(err, "could not get randomness")
 	}
 	return res, nil
+}
+
+func (vmc *VMContext) Sys() *types.VMSyscalls {
+	return vmc.sys
 }
 
 // Storage interface
@@ -304,6 +310,8 @@ type VM struct {
 	blockMiner  address.Address
 	inv         *invoker
 	rand        Rand
+
+	Syscalls *types.VMSyscalls
 }
 
 func NewVM(base cid.Cid, height uint64, r Rand, maddr address.Address, cbs blockstore.Blockstore) (*VM, error) {
@@ -323,6 +331,7 @@ func NewVM(base cid.Cid, height uint64, r Rand, maddr address.Address, cbs block
 		blockMiner:  maddr,
 		inv:         newInvoker(),
 		rand:        r,
+		Syscalls:    DefaultSyscalls(),
 	}, nil
 }
 
