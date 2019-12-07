@@ -451,9 +451,14 @@ func (sma StorageMinerActor) SubmitFallbackPoSt(act *types.Actor, vmctx types.VM
 		return nil, aerrors.HandleExternalError(lerr, "could not load proving set node")
 	}
 
+	faults, nerr := self.FaultSet.AllMap()
+	if nerr != nil {
+		return nil, aerrors.Absorb(err, 5, "RLE+ invalid")
+	}
+
 	var sectorInfos []ffi.PublicSectorInfo
 	if err := pss.ForEach(func(id uint64, v *cbg.Deferred) error {
-		if self.FaultSet.Has(id) {
+		if faults[id] {
 			return nil
 		}
 
@@ -476,12 +481,6 @@ func (sma StorageMinerActor) SubmitFallbackPoSt(act *types.Actor, vmctx types.VM
 	}); err != nil {
 		return nil, aerrors.Absorb(err, 3, "could not decode sectorset")
 	}
-
-	faults, nerr := self.CurrentFaultSet.All()
-	if nerr != nil {
-		return nil, aerrors.Absorb(err, 5, "RLE+ invalid")
-	}
-	_ = faults
 
 	proverID := vmctx.Message().To // TODO: normalize to ID address
 
@@ -803,15 +802,18 @@ func (sma StorageMinerActor) DeclareFaults(act *types.Actor, vmctx types.VMConte
 		return nil, aerr
 	}
 
-	for _, v := range params.Faults.All() {
-		self.FaultSet.Set(v)
+	nfaults, err := types.MergeBitFields(params.Faults, self.FaultSet)
+	if err != nil {
+		return nil, aerrors.Absorb(err, 1, "failed to merge bitfields")
 	}
+
+	self.FaultSet = nfaults
 
 	self.LastFaultSubmission = vmctx.BlockHeight()
 
-	nstate, err := vmctx.Storage().Put(self)
+	nstate, aerr := vmctx.Storage().Put(self)
 	if err != nil {
-		return nil, err
+		return nil, aerr
 	}
 	if err := vmctx.Storage().Commit(oldstate, nstate); err != nil {
 		return nil, err
@@ -908,7 +910,11 @@ func onSuccessfulPoSt(self *StorageMinerActorState, vmctx types.VMContext) aerro
 		return aerrors.HandleExternalError(nerr, "failed to load proving set")
 	}
 
-	faults := self.FaultSet.All()
+	faults, nerr := self.FaultSet.All()
+	if nerr != nil {
+		return aerrors.Absorb(nerr, 1, "invalid bitfield (fatal?)")
+	}
+
 	self.FaultSet = types.NewBitField()
 
 	oldPower := self.Power
