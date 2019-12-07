@@ -10,8 +10,11 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/actors/aerrors"
 	"github.com/filecoin-project/lotus/chain/address"
+	"github.com/filecoin-project/lotus/chain/stmgr"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/sectorbuilder"
+	hamt "github.com/ipfs/go-hamt-ipld"
+	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	cbg "github.com/whyrusleeping/cbor-gen"
 )
 
@@ -44,9 +47,16 @@ func TestMinerCommitSectors(t *testing.T) {
 	ret, _ = h.InvokeWithValue(t, client, actors.StorageMarketAddress, actors.SMAMethods.AddBalance, types.NewInt(2000), nil)
 	ApplyOK(t, ret)
 
+	addSectorToMiner(h, t, minerAddr, worker, client, 1)
+
+	assertSectorIDs(h, t, minerAddr, []uint64{1})
+}
+
+func addSectorToMiner(h *Harness, t *testing.T, minerAddr, worker, client address.Address, sid uint64) {
+	t.Helper()
 	s := sectorbuilder.UserBytesForSectorSize(1024)
 	deal := h.makeFakeDeal(t, minerAddr, worker, client, s)
-	ret, _ = h.Invoke(t, worker, actors.StorageMarketAddress, actors.SMAMethods.PublishStorageDeals,
+	ret, _ := h.Invoke(t, worker, actors.StorageMarketAddress, actors.SMAMethods.PublishStorageDeals,
 		&actors.PublishStorageDealsParams{
 			Deals: []actors.StorageDeal{*deal},
 		})
@@ -60,21 +70,60 @@ func TestMinerCommitSectors(t *testing.T) {
 
 	ret, _ = h.Invoke(t, worker, minerAddr, actors.MAMethods.PreCommitSector,
 		&actors.SectorPreCommitInfo{
-			SectorNumber: 1,
+			SectorNumber: sid,
 			CommR:        []byte("cats"),
 			SealEpoch:    10,
 			DealIDs:      []uint64{dealid},
 		})
 	ApplyOK(t, ret)
 
-	h.vm.SetBlockHeight(100)
+	h.BlockHeight += 100
 	ret, _ = h.Invoke(t, worker, minerAddr, actors.MAMethods.ProveCommitSector,
 		&actors.SectorProveCommitInfo{
 			Proof:    []byte("prooofy"),
-			SectorID: 1,
+			SectorID: sid,
 			DealIDs:  []uint64{dealid}, // TODO: weird that i have to pass this again
 		})
 	ApplyOK(t, ret)
+}
+
+func assertSectorIDs(h *Harness, t *testing.T, maddr address.Address, ids []uint64) {
+	t.Helper()
+	sectors, err := getMinerSectorSet(context.TODO(), h.vm.StateTree(), h.bs, maddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sectors) != len(ids) {
+		t.Fatal("miner has wrong number of sectors in their sector set")
+	}
+
+	all := make(map[uint64]bool)
+	for _, s := range sectors {
+		all[s.SectorID] = true
+	}
+
+	for _, id := range ids {
+		if !all[id] {
+			t.Fatal("expected to find sector ID: ", id)
+		}
+	}
+}
+
+func getMinerSectorSet(ctx context.Context, st types.StateTree, bs blockstore.Blockstore, maddr address.Address) ([]*api.ChainSectorInfo, error) {
+	mact, err := st.GetActor(maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	cst := hamt.CSTFromBstore(bs)
+
+	var mstate actors.StorageMinerActorState
+	if err := cst.Get(ctx, mact.Head, &mstate); err != nil {
+		return nil, err
+	}
+
+	return stmgr.LoadSectorsFromSet(ctx, bs, mstate.Sectors)
 }
 
 func (h *Harness) makeFakeDeal(t *testing.T, miner, worker, client address.Address, size uint64) *actors.StorageDeal {
@@ -98,8 +147,6 @@ func (h *Harness) makeFakeDeal(t *testing.T, miner, worker, client address.Addre
 
 		StoragePricePerEpoch: types.NewInt(1),
 		StorageCollateral:    types.NewInt(0),
-
-		//ProposerSignature *types.Signature
 	}
 
 	if err := api.SignWith(context.TODO(), h.w.Sign, client, &prop); err != nil {

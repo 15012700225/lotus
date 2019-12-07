@@ -290,6 +290,7 @@ func (vm *VM) makeVMContext(ctx context.Context, sroot cid.Cid, msg *types.Messa
 		msg:    msg,
 		origin: origin,
 		height: vm.blockHeight,
+		sys:    vm.Syscalls,
 
 		gasUsed:      usedGas,
 		gasAvailable: msg.GasLimit,

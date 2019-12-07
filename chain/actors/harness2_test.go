@@ -42,11 +42,12 @@ const (
 type HarnessOpt func(testing.TB, *Harness) error
 
 type Harness struct {
-	HI         HarnessInit
-	Stage      HarnessStage
-	Nonces     map[address.Address]uint64
-	GasCharges map[address.Address]types.BigInt
-	Rand       vm.Rand
+	HI          HarnessInit
+	Stage       HarnessStage
+	Nonces      map[address.Address]uint64
+	GasCharges  map[address.Address]types.BigInt
+	Rand        vm.Rand
+	BlockHeight uint64
 
 	lastBalanceCheck map[address.Address]types.BigInt
 
@@ -143,6 +144,7 @@ func NewHarness(t *testing.T, options ...HarnessOpt) *Harness {
 		w:                w,
 		ctx:              context.Background(),
 		bs:               bstore.NewBlockstore(dstore.NewMapDatastore()),
+		BlockHeight:      0,
 	}
 	for _, opt := range options {
 		err := opt(t, h)
@@ -255,6 +257,7 @@ func (h *Harness) Invoke(t testing.TB, from address.Address, to address.Address,
 func (h *Harness) InvokeWithValue(t testing.TB, from address.Address, to address.Address,
 	method uint64, value types.BigInt, params cbg.CBORMarshaler) (*vm.ApplyRet, *state.StateTree) {
 	t.Helper()
+	h.vm.SetBlockHeight(h.BlockHeight)
 	return h.Apply(t, types.Message{
 		To:       to,
 		From:     from,
